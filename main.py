@@ -280,7 +280,7 @@ def generate_commit_list(tz):
         for day in dayOfWeek:
             if day['percent'] > max_element['percent']:
                 max_element = day
-        days_title = translate['I am Most Productive on'] + ' ' + max_element['name']
+        days_title = translate['I am Most Productive on'] % max_element['name']
         string = string + '📅 **' + days_title + '** \n\n' + '```text\n' + make_commit_list(dayOfWeek) + '\n\n```\n'
 
     return string
@@ -369,29 +369,24 @@ def generate_language_per_repo(result):
     most_language_repo = sorted_labels[0]
     for label in sorted_labels:
         percent = round(language_count[label]['count'] / total * 100, 2)
+        extension = " repos"
+        if language_count[label]['count'] == 1:
+            extension = " repo"
         data.append({
             "name": label,
-            "text": str(language_count[label]['count']) + " repos",
+            "text": str(language_count[label]['count']) + extension,
             "percent": percent
         })
 
-    title = translate['I Mostly Code in'] + ' ' + most_language_repo
+    title = translate['I Mostly Code in'] % most_language_repo
     return '**' + title + '** \n\n' + '```text\n' + make_list(data) + '\n\n```\n'
 
 
 def get_line_of_code():
-    result = run_query(createContributedRepoQuery.substitute(username=username))
-    nodes = result["data"]["user"]["repositoriesContributedTo"]["nodes"]
-    repos = [d for d in nodes if d['isFork'] is False]
-    total_loc = 0
-    for repository in repos:
-        try:
-            time.sleep(0.7)
-            datas = run_v3_api(get_loc_url.substitute(owner=repository["owner"]["login"], repo=repository["name"]))
-            for data in datas:
-                total_loc = total_loc + data[1] - data[2]
-        except Exception as execp:
-            print(execp)
+    repositoryList = run_query(repositoryListQuery.substitute(username=username, id=id))
+    loc = LinesOfCode(id, username, ghtoken, repositoryList)
+    yearly_data = loc.calculateLoc()
+    total_loc = sum([yearly_data[year][quarter][lang] for year in yearly_data for quarter in yearly_data[year] for lang in yearly_data[year][quarter]])
     return humanize.intword(int(total_loc))
 
 
@@ -408,10 +403,9 @@ def get_short_info(github):
         data = request.json()
         total = data['years'][0]['total']
         year = data['years'][0]['year']
-        string += '> 🏆 ' + humanize.intcomma(total) + " " + translate[
-            'Contributions in the year'] + " " + year + '\n > \n'
+        string += '> 🏆 ' + translate['Contributions in the year'] % (humanize.intcomma(total), year) + '\n > \n'
 
-    string += '> 📦 ' + disk_usage + " " + translate["Used in GitHub's Storage"] + ' \n > \n'
+    string += '> 📦 ' + translate["Used in GitHub's Storage"] % disk_usage + ' \n > \n'
     is_hireable = user_info.hireable
     public_repo = user_info.public_repos
     private_repo = user_info.owned_private_repos
@@ -422,12 +416,10 @@ def get_short_info(github):
     else:
         string += "> 🚫 " + translate["Not Opted to Hire"] + "\n > \n"
 
-    string += '> 📜 ' + str(public_repo) + " "
-    string += translate['public repositories'] + '\n > \n' if public_repo > 1 else translate[
-                                                                                       'public repository'] + ' \n > \n'
-    string += '> 🔑 ' + str(private_repo) + " "
-    string += translate['private repositories'] + ' \n\n' if private_repo > 1 else translate[
-                                                                                       'private repository'] + ' \n > \n'
+    string += '> 📜 ' 
+    string += translate['public repositories'] % public_repo + " " + '\n > \n' if public_repo != 1 else translate['public repository'] % public_repo + " " + '\n > \n'
+    string += '> 🔑 '
+    string += translate['private repositories'] % private_repo + " " +' \n > \n' if private_repo != 1 else translate['private repository'] % private_repo + " " + '\n > \n'
 
     return string
 
@@ -459,9 +451,10 @@ def get_stats(github):
 
     if showLocChart.lower() in truthy:
         loc = LinesOfCode(id, username, ghtoken, repositoryList)
-        loc.calculateLoc()
+        yearly_data = loc.calculateLoc()
+        loc.plotLoc(yearly_data)
         stats += '**' + translate['Timeline'] + '**\n\n'
-        stats = stats + '![Chart not found](https://github.com/' + username + '/' + username + '/blob/master/charts/bar_graph.png) \n\n'
+        stats = stats + '![Chart not found](https://raw.githubusercontent.com/' + username + '/' + username + '/master/charts/bar_graph.png) \n\n'
 
     return stats
 
@@ -505,11 +498,16 @@ if __name__ == '__main__':
         star_me()
         rdmd = decode_readme(contents.content)
         new_readme = generate_new_readme(stats=waka_stats, readme=rdmd)
-        committer = InputGitAuthor('readme-bot', 'readme-bot@example.com')
+        committer = InputGitAuthor('readme-bot', '41898282+github-actions[bot]@users.noreply.github.com')
         if new_readme != rdmd:
-            repo.update_file(path=contents.path, message='Updated with Dev Metrics',
-                             content=new_readme, sha=contents.sha, branch='master',
-                             committer=committer)
+            try:
+                repo.update_file(path=contents.path, message='Updated with Dev Metrics',
+                                 content=new_readme, sha=contents.sha, branch='master',
+                                 committer=committer)
+            except:
+                repo.update_file(path=contents.path, message='Updated with Dev Metrics',
+                                 content=new_readme, sha=contents.sha, branch='main',
+                                 committer=committer)
             print("Readme updated")
     except Exception as e:
         traceback.print_exc()
